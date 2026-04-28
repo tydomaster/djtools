@@ -16,6 +16,9 @@ def _parse_admin_ids() -> list[int]:
 class Settings:
     bot_token: str = field(default_factory=lambda: os.environ["BOT_TOKEN"])
     admin_ids: list[int] = field(default_factory=_parse_admin_ids)
+    soundcloud_oauth_token: str = field(
+        default_factory=lambda: os.environ.get("SOUNDCLOUD_OAUTH_TOKEN", "")
+    )
 
 
 settings = Settings()

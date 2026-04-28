@@ -8,8 +8,17 @@ from pathlib import Path
 
 import yt_dlp
 
+from config import settings
+
 # Formats Telegram's send_audio accepts natively — no re-encoding needed
 TELEGRAM_NATIVE = {".mp3", ".m4a", ".aac", ".flac", ".ogg", ".oga", ".opus"}
+
+# Priority: 320 kbps MP3 (Go+) → 256 kbps AAC (HLS Go+) → best available
+# yt-dlp SoundCloud format IDs:
+#   http_mp3_320_url  — 320 kbps MP3, requires OAuth token (Go+)
+#   hls-aac-256-0     — 256 kbps AAC HLS, some tracks without auth
+#   bestaudio/best    — fallback (usually 128 kbps MP3)
+FORMAT_STRING = "http_mp3_320_url/hls-aac-256-0/bestaudio/best"
 
 
 def _sanitize_filename(name: str) -> str:
@@ -41,7 +50,6 @@ def _ffprobe_info(filepath: str) -> dict:
 
 
 def _convert_to_mp3(src: str, dst: str) -> None:
-    """Re-encode to MP3 only as a last resort (exotic container)."""
     subprocess.check_call(
         ["ffmpeg", "-y", "-i", src, "-c:a", "libmp3lame", "-q:a", "0", dst],
         stdout=subprocess.DEVNULL,
@@ -49,14 +57,9 @@ def _convert_to_mp3(src: str, dst: str) -> None:
     )
 
 
-def _download_sync(url: str) -> dict:
-    tmpdir = tempfile.mkdtemp(prefix="djtools_")
-
-    # Download the best available stream WITHOUT re-encoding.
-    # SoundCloud serves MP3 128 kbps (HTTP) or AAC 256 kbps (HLS, some tracks).
-    # Re-encoding lossy→lossy only degrades quality, so we preserve the original.
-    ydl_opts = {
-        "format": "bestaudio/best",
+def _build_ydl_opts(tmpdir: str) -> dict:
+    opts = {
+        "format": FORMAT_STRING,
         "outtmpl": os.path.join(tmpdir, "%(title)s.%(ext)s"),
         "writethumbnail": False,
         "quiet": True,
@@ -64,7 +67,19 @@ def _download_sync(url: str) -> dict:
         "noplaylist": True,
     }
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    token = settings.soundcloud_oauth_token
+    if token:
+        # SoundCloud API uses "Authorization: OAuth <token>" for authenticated requests.
+        # With a Go+ account token this unlocks the 320 kbps MP3 stream.
+        opts["http_headers"] = {"Authorization": f"OAuth {token}"}
+
+    return opts
+
+
+def _download_sync(url: str) -> dict:
+    tmpdir = tempfile.mkdtemp(prefix="djtools_")
+
+    with yt_dlp.YoutubeDL(_build_ydl_opts(tmpdir)) as ydl:
         info = ydl.extract_info(url, download=True)
 
     files = [f for f in Path(tmpdir).iterdir() if f.is_file()]
@@ -82,9 +97,9 @@ def _download_sync(url: str) -> dict:
         filepath = mp3_path
         ext = ".mp3"
 
-    # Measure actual quality from the file — much more accurate than yt-dlp metadata
+    # Measure actual quality from the downloaded file — more reliable than metadata
     probe = _ffprobe_info(str(filepath))
-    codec = probe.get("codec", ext.lstrip(".").upper())
+    codec = probe.get("codec") or ext.lstrip(".").upper()
     bitrate = probe.get("bitrate_kbps", 0)
     sample_rate = probe.get("sample_rate", 0)
 
