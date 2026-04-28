@@ -14,7 +14,8 @@ from config import settings
 TELEGRAM_NATIVE = {".mp3", ".m4a", ".aac", ".flac", ".ogg", ".oga", ".opus"}
 
 # Priority: 320 kbps MP3 (Go+) → 256 kbps AAC HLS → best available
-FORMAT_STRING = "http_mp3_320_url/hls-aac-256-0/bestaudio/best"
+# Priority: artist original upload (WAV/FLAC if enabled) → 320 kbps Go+ → 256 kbps AAC → best available
+FORMAT_STRING = "original/http_mp3_320_url/hls-aac-256-0/bestaudio/best"
 
 # Realistic browser User-Agent — reduces chance of being flagged as a bot
 USER_AGENT = (
